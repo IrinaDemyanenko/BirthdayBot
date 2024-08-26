@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import (AsyncAttrs,
 # echo=True to show info in terminal
 # sqlite Database Management System, DBMS - СУБД
 # aiosqlite driver
-# db.sqlite3 name
+# birthdaybot.db name
 engine = create_async_engine(url='sqlite+aiosqlite:///birthdaybot.db', echo=True)
 
 # creates connection
@@ -50,9 +50,15 @@ class Friend(Base):
 
 
 # let`s create all the tables
+# с помощью контекстного менеджера, через engine начать сессию
+# и создать новую переменную conn; используя это подключение,
+# запустить синхронизацию, в которую передадим основной класс Base,
+# где, в метаданных, хранятся все дочерние классы (т.е. наши таблиицы);
+# создаём эти классы-таблицы
 async def create_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
 
 
 # to delete all the tables at db
