@@ -7,10 +7,11 @@ from app.handlers import router
 from database.db_middleware import DataBaseSession
 from database.models import create_db, drop_db, async_session
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 bot = Bot(token=TOKEN)
 disp = Dispatcher()
-db = DataBaseSession('birthdaybot.db')
+
 
 async def main():
     """Starts main code."""

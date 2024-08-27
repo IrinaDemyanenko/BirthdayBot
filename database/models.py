@@ -34,6 +34,8 @@ class User(Base):
     # uniqe telegram user`s number
     tg_id = mapped_column(BigInteger)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    #chat_id: Mapped[int] = mapped_column()  # для автосообщений от бота
+    # нашла инф что chat.id конкретному пользователю равен id этого пользователя
 
 
 class Friend(Base):
