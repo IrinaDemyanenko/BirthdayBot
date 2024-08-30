@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from aiogram import F, Bot, Router
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import StatesGroup, State
@@ -14,10 +15,18 @@ from app.variables import today_year
 from database.models import Friend, User
 from database.orm_requests import orm_add_new_friend, orm_check_birthday, orm_check_user_exists, orm_get_user_db_id, orm_get_user_full_name, orm_reg_user
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from app.apsched import apsch_send_message_middleware_time, apsch_send_message_middleware_cron
+
+
 router = Router()
 
+
 @router.message(CommandStart())
-async def cmd_start(message: Message, session: AsyncSession):
+async def cmd_start(
+    message: Message, bot: Bot, session: AsyncSession,
+    apscheduler: AsyncIOScheduler
+    ):
     # если из БД из модели Юзер нельзя извлечь из столбца tg_id id текущего юзера
     user = await orm_check_user_exists(session, message)
     if not user:
@@ -30,7 +39,12 @@ async def cmd_start(message: Message, session: AsyncSession):
     else:
         name = await orm_get_user_full_name(session, message)
         await message.reply(f'Здравствуйте, {name}!')
-
+    apscheduler.add_job(
+        apsch_send_message_middleware_time,
+        trigger='date',
+        next_run_time=datetime.now() + timedelta(seconds=5),
+        kwargs={'bot': bot, 'chat_id': message.from_user.id}
+        )
 
 class Reg_user(StatesGroup):
     """Describes user`s states during registration."""
@@ -123,12 +137,20 @@ async def get_help(message: Message, session: AsyncSession):
                             f'/add - добавление новых друзей в Ваш '
                             f'персональный список близких людей,\n'
                             f'/check - проверка наличия именинников сегодня,\n'
+                            f'/remind_me - выберите подходящее время для получения '
+                            f'уведомлений о дне рожденя друга; данная команда активирует '
+                            f'ф-ию уведомления, запускается с отсрочкой старта в 1 минуту; '
+                            f'уведомления будут приходить в одно и тоже время (если запустили '
+                            f'команду /remind_me в 10.00, и и уведомления будут приходить в 10.00; '
+                            f'чтобы скорректировать время - запустите ф-ию в удобное для Вас '
+                            f'время суток;),\n'
                             f'/help - список доступных команд\n'
                             )
 
 
 @router.message(Command('check'))
 async def check(message: Message, session: AsyncSession):
+    """Включение принудительной проверки наличия именниников в БД."""
     db_id = await orm_get_user_db_id(session, message)
     birthdays = await orm_check_birthday(session, db_id)
     for birth in birthdays:
@@ -137,6 +159,27 @@ async def check(message: Message, session: AsyncSession):
                              f'Исполняется {years_old} лет :)'
                              )
 
-#async def send_message_time(bot: Bot):
-    #await bot.send_message()
+@router.message(Command('remind_me'))
+async def remind_me(message: Message, session: AsyncSession,
+                    bot: Bot, apscheduler: AsyncIOScheduler
+                    ):
+    """Включение принудительной проверки наличия именниников в БД."""
+    chat_id = message.from_user.id
+    apscheduler.add_job(
+        apsch_send_message_middleware_cron,
+        trigger='cron',
+        hour=datetime.now().hour,  # текущий час hour=datetime.now().hour
+        minute=datetime.now().minute + 1,  # запустится через 1 минуту
+        #second=datetime.now().second + 1,  # запустится через 1 минуту
+        start_date=datetime.now(),  # задача начнёт выполнятся начиная с сегодня
+        kwargs={'bot': bot, 'chat_id': chat_id, 'message': message, 'session': session}
+    )
+    
 
+# apsch_send_message_middleware_cron,
+#         trigger='cron',
+#         hour=datetime.now().hour,  # текущий час hour=datetime.now().hour
+#         minute=datetime.now().minute + 1,  # запустится через 1 минуту
+#         second=datetime.now().second + 1,  # запустится через 1 секунду
+#         start_date=datetime.now(),  # задача начнёт выполнятся начиная с сегодня
+#         kwargs={'bot': bot, 'chat_id': chat_id, 'message': message, 'session': session}
