@@ -13,10 +13,12 @@ import app.keyboards as kb
 from app.variables import today_year
 
 from database.models import Friend, User
-from database.orm_requests import orm_add_new_friend, orm_check_birthday, orm_check_user_exists, orm_get_user_db_id, orm_get_user_full_name, orm_reg_user
+from database.orm_requests import orm_add_new_friend, orm_check_birthday, orm_check_user_exists, orm_get_all_my_friends, orm_get_user_db_id, orm_get_user_full_name, orm_reg_user
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.apsched import apsch_send_message_middleware_time, apsch_send_message_middleware_cron
+
+from app.constants import need_reg, what_i_can
 
 
 router = Router()
@@ -128,24 +130,9 @@ async def get_help(message: Message, session: AsyncSession):
     # если из БД из модели Юзер нельзя извлечь из столбца tg_id id текущего юзера
     user = await orm_check_user_exists(session, message)
     if not user:
-        await message.reply(f'Вы не зарегистрированы.\n'
-                            f'Чтобы продолжить пользоваться сервисом,\n'
-                            f'введите команду /start'
-                            )
+        await message.reply(need_reg)
     else:
-        await message.reply(f'/start - форма регистрации,\n'
-                            f'/add - добавление новых друзей в Ваш '
-                            f'персональный список близких людей,\n'
-                            f'/check - проверка наличия именинников сегодня,\n'
-                            f'/remind_me - выберите подходящее время для получения '
-                            f'уведомлений о дне рожденя друга; данная команда активирует '
-                            f'ф-ию уведомления, запускается с отсрочкой старта в 1 минуту; '
-                            f'уведомления будут приходить в одно и тоже время (если запустили '
-                            f'команду /remind_me в 10.00, и и уведомления будут приходить в 10.00; '
-                            f'чтобы скорректировать время - запустите ф-ию в удобное для Вас '
-                            f'время суток;),\n'
-                            f'/help - список доступных команд\n'
-                            )
+        await message.reply(what_i_can)
 
 
 @router.message(Command('check'))
@@ -174,7 +161,23 @@ async def remind_me(message: Message, session: AsyncSession,
         start_date=datetime.now(),  # задача начнёт выполнятся начиная с сегодня
         kwargs={'bot': bot, 'chat_id': chat_id, 'message': message, 'session': session}
     )
-    
+
+
+@router.message(Command('all_friends'))
+async def get_all_friends(message: Message, session: AsyncSession):
+    """Получение списка всех друзей.
+
+    Пока каждый будет выводиться отдельным сообщением.
+    """
+    db_id = await orm_get_user_db_id(session, message)
+    for friend in await orm_get_all_my_friends(session, db_id):
+        await message.answer(
+            f'ID: {friend.id},\n'
+            f'Полное имя: {friend.full_name},\n'
+            f'Дата и год рождения: {friend.date_month}.{friend.birth_year}'
+        )
+
+
 
 # apsch_send_message_middleware_cron,
 #         trigger='cron',

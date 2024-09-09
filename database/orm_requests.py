@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aiogram.types import Message
@@ -63,4 +63,38 @@ async def orm_check_birthday(session: AsyncSession, db_id: int):
     # запрос возвращает целые строки со всем сожержимым
     return await session.scalars(query)
 
+
+async def orm_get_all_my_friends(session: AsyncSession, db_id: int):
+    """Получить весь список всех друзей."""
+    query = select(Friend).where(Friend.user_id == db_id)
+    result = await session.execute(query)
+    return result.scalars().all()
+
+
+async def orm_get_friend(session: AsyncSession, id: int):
+    """Получить одного друга по id."""
+    query = select(Friend).where(Friend.id == id)
+    result = await session.execute(query)
+    return result.scalar()
+
+
+async def orm_update_friend(session: AsyncSession, id: int, data: dict):
+    """Изменить данные одного друга по id."""
+    query = update(Friend).where(Friend.id == id).values(
+        full_name = data['fullname'],
+        date_month = data['datemonth'],
+        birth_year = data['birthyear'],
+    # each user has personal list of friends,
+    # total list is filtered by user`s id
+        user_id = data['userid']
+    )
+    await session.execute(query)
+    await session.commit()
+
+
+async def orm_delete_friend(session: AsyncSession, id: int):
+    """Удалить друга из БД."""
+    query = delete(Friend).where(Friend.id == id)
+    await session.execute(query)
+    await session.commit()
 
