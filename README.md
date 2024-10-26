@@ -1,5 +1,4 @@
-# @BirthdayBot is a Telegramm-bot, that will help you to be
-thoughtful to your relatives and friends.
+# @BirthdayBot is a Telegramm-bot, that will help you to be thoughtful to your relatives and friends.
 
 This bot gives you the opportunity to create a personalised
 list of friends with their birthdays. When someone on your
