@@ -78,23 +78,46 @@ async def orm_get_friend(session: AsyncSession, id: int):
     return result.scalar()
 
 
-async def orm_update_friend(session: AsyncSession, id: int, data: dict):
-    """Изменить данные одного друга по id."""
-    query = update(Friend).where(Friend.id == id).values(
-        full_name = data['fullname'],
-        date_month = data['datemonth'],
-        birth_year = data['birthyear'],
-    # each user has personal list of friends,
-    # total list is filtered by user`s id
-        user_id = data['userid']
+# async def orm_update_friend(session: AsyncSession, id: int, data: dict):
+#     """Изменить данные одного друга по id."""
+#     query = update(Friend).where(Friend.id == id).values(
+#         full_name = data['fullname'],
+#         date_month = data['datemonth'],
+#         birth_year = data['birthyear'],
+#     # each user has personal list of friends,
+#     # total list is filtered by user`s id
+#         user_id = data['userid']
+#     )
+#     await session.execute(query)  # Выполняем запрос
+#     await session.commit()   # Сохраняем изменения
+
+
+async def orm_update_friend(session: AsyncSession, friend_id: int, new_data: dict) -> None:
+    """
+    Обновляет информацию о друге в базе данных.
+
+    session: Экземпляр асинхронной сессии SQLAlchemy.
+    friend_id: ID друга, которого нужно обновить.
+    new_data: Словарь с новыми данными для обновления. Пример: {'full_name': 'Новое имя', 'birth_year': 1990}.
+    """
+    # Создаём запрос на обновление
+    stmt = (
+        update(Friend)
+        .where(Friend.id == friend_id)  # Условие: обновляем запись с определённым ID
+        .values(**new_data)  # Передаём новые данные
     )
-    await session.execute(query)
-    await session.commit()
+    try:
+        # Выполняем запрос
+        await session.execute(stmt)
+        # Сохраняем изменения
+        await session.commit()
+    except Exception as e:
+        # В случае ошибки откатываем транзакцию
+        await session.rollback()
+        raise e
 
-
-async def orm_delete_friend(session: AsyncSession, id: int):
+async def orm_delete_friend(session: AsyncSession, friend_id: int):
     """Удалить друга из БД."""
-    query = delete(Friend).where(Friend.id == id)
-    await session.execute(query)
-    await session.commit()
-
+    query = delete(Friend).where(Friend.id == friend_id)
+    await session.execute(query)   # Выполняем запрос
+    await session.commit()   # Сохраняем изменения
