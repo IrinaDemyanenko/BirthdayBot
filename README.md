@@ -5,6 +5,8 @@ list of friends with their birthdays. When someone on your
 list has a birthday, the bot will remind you about it by sending
 a notification to your personal chat room.
 
+*Stack: Aiogram, APScheduler, SQLAlchemy, PostgreSQL*
+
 ### How does it works?
 * 1.Open Telegramm and find @RemindeBirthdayBot (https://t.me/RemindeBirthdayBot).
 
@@ -19,7 +21,11 @@ to your list with your personal number.
 
 * 4.Use /add every time you want to add someone to your list.
 
-* 5.Use /remind_me to select a suitable time to receive
+* 5.Use /edit to change a friend's record in the database.
+
+* 6.Use /delete to delete a friend's record in the database.
+
+* 6.Use /remind_me to select a suitable time to receive
 notifications about a friend's birthday; this command activates the notification
 function, starts with a delayed start time of 1 minute.
 Notifications will come at the same time every day (if you run
