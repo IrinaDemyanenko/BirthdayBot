@@ -138,7 +138,7 @@ async def add_forth(message: Message, state: FSMContext, session: AsyncSession):
         return
 
 
-    await state.update_data(birthyear=birth_year)
+    await state.update_data(birthyear=int(birth_year))
     data = await state.get_data()
     db_id = await orm_get_user_db_id(session, message)
     data['userid'] = db_id

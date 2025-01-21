@@ -1,15 +1,23 @@
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.ext.asyncio import (AsyncAttrs, 
+from sqlalchemy.ext.asyncio import (AsyncAttrs,
                                     async_sessionmaker,
                                     create_async_engine
                                     )
+from config import db_username, db_localhost, db_password, yourdbname
 # creates DB
 # echo=True to show info in terminal
 # sqlite Database Management System, DBMS - СУБД
 # aiosqlite driver
 # birthdaybot.db name
-engine = create_async_engine(url='sqlite+aiosqlite:///birthdaybot.db', echo=True)
+#engine = create_async_engine(url='sqlite+aiosqlite:///birthdaybot.db', echo=True)
+
+DATABASE_URL = f'postgresql+asyncpg://{db_username}:{db_password}@{db_localhost}:5432/{yourdbname}'
+
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=True
+)
 
 # creates connection
 # expire_on_commit=False to reuse session
