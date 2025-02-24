@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.ext.asyncio import (AsyncAttrs,
                                     async_sessionmaker,
@@ -40,7 +40,7 @@ class User(Base):
     __tablename__ = 'users'
     id: Mapped[int] = mapped_column(primary_key=True)
     # uniqe telegram user`s number
-    tg_id = mapped_column(BigInteger)
+    tg_id = mapped_column(BigInteger, unique=True)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     #chat_id: Mapped[int] = mapped_column()  # для автосообщений от бота
     # нашла инф что chat.id конкретному пользователю равен id этого пользователя
@@ -56,7 +56,8 @@ class Friend(Base):
     birth_year: Mapped[int] = mapped_column()
     # each user has personal list of friends,
     # total list is filtered by user`s id
-    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.tg_id'), nullable=False)
+    notify_week_before: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 # let`s create all the tables

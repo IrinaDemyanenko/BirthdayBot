@@ -11,17 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 import app.keyboards as kb
-from app.variables import today_year
+from app.variables import today_year, current_year, formatted_time
 
 from database.models import Friend, User
-from database.orm_requests import orm_add_new_friend, orm_check_birthday, orm_check_user_exists, orm_get_all_my_friends, orm_get_friend, orm_get_user_db_id, orm_get_user_full_name, orm_reg_user
+from database.orm_requests import orm_add_new_friend, orm_check_birthday, orm_check_user_exists, orm_get_all_my_friends, orm_get_friend, orm_get_user_db_id, orm_get_user_full_name, orm_get_user_tg_id, orm_reg_user
 from database.orm_requests import orm_update_friend, orm_delete_friend
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.apsched import apsch_send_message_middleware_time, apsch_send_message_middleware_cron
 
 from app.constants import need_reg, what_i_can, correct_year
-from app.variables import current_year
+
 
 
 router = Router()
@@ -47,7 +47,7 @@ async def cmd_start(
     apscheduler.add_job(
         apsch_send_message_middleware_time,
         trigger='date',
-        next_run_time=datetime.now() + timedelta(seconds=5),
+        next_run_time=datetime.now() + timedelta(seconds=1),
         kwargs={'bot': bot, 'chat_id': message.from_user.id}
         )
 
@@ -85,6 +85,7 @@ class Add_friend(StatesGroup):
     full_name = State()
     date_month = State()
     birth_year = State()
+    notify_week_before = State()  # Новый шаг для выбора уведомлений
 
 # после команды /add начнётся регистрация нового пользователя
 @router.message(Command('add'))
@@ -139,22 +140,43 @@ async def add_forth(message: Message, state: FSMContext, session: AsyncSession):
 
 
     await state.update_data(birthyear=int(birth_year))
+    await state.set_state(Add_friend.notify_week_before)
+    await message.answer(
+        "Хотите получать напоминание за неделю до дня рождения этого человека? (Да/Нет)"
+    )
+
+@router.message(Add_friend.notify_week_before)
+async def add_notify_week_before(message: Message, state: FSMContext, session: AsyncSession):
+
+    notify_input = message.text.strip().lower()
+
+    # Проверка на ввод "Да" или "Нет"
+    if notify_input not in ['да', 'нет']:
+        await message.answer('Пожалуйста, введите "Да" или "Нет".')
+        return
+
+    notify_week_before = True if notify_input == 'да' else False
+    await state.update_data(notify_week_before=notify_week_before)
+
     data = await state.get_data()
-    db_id = await orm_get_user_db_id(session, message)
-    data['userid'] = db_id
-    # теперь вся сохранённая инф хранится в виде словаря,
-    # эту информацию можно за один раз отправить в БД и
-    # создать новую запись о новом друге
+    # db_id = await orm_get_user_db_id(session, message)
+    # data['userid'] = db_id
+    tg_id = await orm_get_user_tg_id(session, message) # извлекаем tg_id текущего пользоваетля
+    data['userid'] = tg_id  # подставляем tg_id в поле user_id друга
+
+    # Теперь сохраняем друга с учетом оповещения
     await orm_add_new_friend(session, data)
 
-    # теперь отправим пользователю сообщение
+    # Теперь отправим пользователю сообщение
     await message.answer(f'Спасибо, запись добавлена.\n'
-                         f'Полное имя: {data['fullname']},\n'
-                         f'Число и месяц рождения: {data['datemonth']},\n'
-                         f'Год рождения: {data['birthyear']},\n'
-                         f'Ваш id в БД: {data['userid']}'
+                         f'Полное имя: {data["fullname"]},\n'
+                         f'Число и месяц рождения: {data["datemonth"]},\n'
+                         f'Год рождения: {data["birthyear"]},\n'
+                         f'Напоминание за неделю: {"Да" if data["notify_week_before"] else "Нет"},\n'
+                         f'Ваш id в Telegramm: {data["userid"]}'
                          )
-    # очистим состояние, чтобы не засорять кэш бота
+
+    # Очистим состояние, чтобы не засорять кэш бота
     await state.clear()
 
 
@@ -171,13 +193,19 @@ async def get_help(message: Message, session: AsyncSession):
 @router.message(Command('check'))
 async def check(message: Message, session: AsyncSession):
     """Включение принудительной проверки наличия именниников в БД."""
-    db_id = await orm_get_user_db_id(session, message)
-    birthdays = await orm_check_birthday(session, db_id)
+    tg_id = await orm_get_user_tg_id(session, message)
+    birthdays_result = await orm_check_birthday(session, tg_id)
+    birthdays = list(birthdays_result)  # Преобразуем ScalarResult в список
+
+    if not birthdays:  # Проверка на пустоту списка
+        await message.answer(f'Сегодня нет именинников!')
+        return  # Прерываем выполнение, если именинников нет
+
     for birth in birthdays:
         years_old = today_year - birth.birth_year
         await message.answer(f'Сегодня именинник {birth.full_name}!\n'
                              f'Исполняется {years_old} лет :)'
-                             )
+                            )
 
 @router.message(Command('remind_me'))
 async def remind_me(message: Message, session: AsyncSession,
@@ -185,6 +213,18 @@ async def remind_me(message: Message, session: AsyncSession,
                     ):
     """Включение принудительной проверки наличия именниников в БД."""
     chat_id = message.from_user.id
+    now = datetime.now()
+    formatted_time = now.strftime("%H:%M")
+
+    # Создаём сообщение с актуальным временем
+    check_reply = f"""
+Теперь я буду отправлять Вам напоминания в *{formatted_time}*.
+
+Если хотите изменить время оповещения,
+дождитесь подходящего времени суток и снова
+отправьте мне в чат команду `/remind_me`
+"""
+
     apscheduler.add_job(
         apsch_send_message_middleware_cron,
         trigger='cron',
@@ -194,6 +234,7 @@ async def remind_me(message: Message, session: AsyncSession,
         start_date=datetime.now(),  # задача начнёт выполнятся начиная с сегодня
         kwargs={'bot': bot, 'chat_id': chat_id, 'message': message, 'session': session}
     )
+    await message.answer(check_reply, parse_mode="Markdown")
 
 
 @router.message(Command('all_friends'))
@@ -202,14 +243,18 @@ async def get_all_friends(message: Message, session: AsyncSession):
 
     Пока каждый будет выводиться отдельным сообщением.
     """
-    db_id = await orm_get_user_db_id(session, message)
-    for friend in await orm_get_all_my_friends(session, db_id):
-        await message.answer(
-            f'ID: {friend.id},\n'
-            f'Полное имя: {friend.full_name},\n'
-            f'Дата и год рождения: {friend.date_month}.{friend.birth_year}'
-        )
-
+    tg_id = await orm_get_user_tg_id(session, message)
+    friends = await orm_get_all_my_friends(session, tg_id)
+    if friends:
+        for friend in friends:
+            await message.answer(
+                f'ID: {friend.id},\n'
+                f'Полное имя: {friend.full_name},\n'
+                f'Дата и год рождения: {friend.date_month}.{friend.birth_year},\n'
+                f'Напоминание за неделю: {"Да" if friend.notify_week_before else "Нет"}'
+            )
+    else:
+        await message.answer(f'У Вас пока нет друзей! Добавь нового друга, используя команду "/add"')
 
 class EditFriend(StatesGroup):
     """Описывает состояния пользователя в процессе редактировния
@@ -219,6 +264,7 @@ class EditFriend(StatesGroup):
     full_name = State()
     date_month = State()
     birth_year = State()
+    notify_week_before = State()
 
 @router.message(Command('edit'))
 async def edit_friend_start(message: Message, state: FSMContext, session: AsyncSession):
@@ -227,8 +273,8 @@ async def edit_friend_start(message: Message, state: FSMContext, session: AsyncS
     Команда /edit отображает список друзей с их ID.
     Пользователь вводит ID друга, которого нужно редактировать.
     """
-    db_id = await orm_get_user_db_id(session, message)
-    friends = await orm_get_all_my_friends(session, db_id)
+    tg_id = await orm_get_user_tg_id(session, message)
+    friends = await orm_get_all_my_friends(session, tg_id)
 
     if not friends:
         await message.answer('У вас пока нет друзей в базе для редактирования.')
@@ -298,7 +344,8 @@ async def edit_friend_date_month(message: Message, state: FSMContext):
 @router.message(EditFriend.birth_year)
 async def edit_friend_birth_year(message: Message, state: FSMContext, session: AsyncSession):
     """Обновление года рождения друга."""
-    birth_year = message.text
+    birth_year = message.text.strip()
+
     if birth_year != ".":
         # Проверка, что введен год из 4 цифр и это разумный год
         if not re.match(r'^\d{4}$', birth_year):
@@ -307,14 +354,34 @@ async def edit_friend_birth_year(message: Message, state: FSMContext, session: A
             )
             return
 
-        if not current_year - 120 < int(birth_year) < current_year:
+        if not (current_year - 120 < int(birth_year) < current_year):
             await message.answer(correct_year)
             return
 
-        await state.update_data(birth_year=birth_year)
+        await state.update_data(birth_year=int(birth_year))
 
-    # Получаем все данные
+    # Если пользователь оставил текущий год (.), тоже продолжаем
+    await state.set_state(EditFriend.notify_week_before)
+    await message.answer(
+    "Хотите получать напоминание за неделю до дня рождения этого человека? (Да/Нет)"
+    )
+
+@router.message(EditFriend.notify_week_before)
+async def edit_friend_notify_week_before(message: Message, state: FSMContext, session: AsyncSession):
+    notify_input = message.text.strip().lower()  # убираем пробелы в начале и конце
+
+    # Проверка на ввод "Да" или "Нет"
+    if notify_input not in ['да', 'нет']:
+        await message.answer('Пожалуйста, введите "Да" или "Нет".')
+        return
+
+    notify_week_before = True if notify_input == 'да' else False
+    await state.update_data(notify_week_before=notify_week_before)
+
+     # Получаем все данные
     data = await state.get_data()
+    #db_id = await orm_get_user_db_id(session, message)
+
     friend_id = data.get('friend_id')
 
     # Формируем новые данные для обновления
@@ -325,12 +392,26 @@ async def edit_friend_birth_year(message: Message, state: FSMContext, session: A
         new_data['date_month'] = data['date_month']
     if 'birth_year' in data:
         new_data['birth_year'] = int(data['birth_year'])
+    if 'notify_week_before' in data:
+        new_data['notify_week_before'] = data['notify_week_before']
 
     # Выполняем обновление в базе данных
     await orm_update_friend(session, friend_id, new_data)
 
-    await message.answer('Данные друга успешно обновлены.')
+    # Получаем обновленные данные из базы
+    updated_friend = await orm_get_friend(session, friend_id)
+
+    # Формируем текст с обновленными данными
+    updated_info = (
+        f'Обновлённые данные друга:\n'
+        f'Имя: {updated_friend.full_name}\n'
+        f'Дата рождения: {updated_friend.date_month}.{updated_friend.birth_year}\n'
+        f'Напоминание за неделю: {'Да' if updated_friend.notify_week_before else 'Нет'}'
+    )
+
+    await message.answer(f'Данные друга успешно обновлены.\n\n{updated_info}')
     await state.clear()
+
 
 
 # Добавляем состояния для удаления записи друга
@@ -344,10 +425,10 @@ class DeleteFriend(StatesGroup):
 @router.message(Command('delete'))
 async def delete_friend_start(message: Message, state: FSMContext, session: AsyncSession):
     """Начало процесса удаления друга из БД."""
-    # получаем id текущего пользователя
-    db_id = await orm_get_user_db_id(session, message)
+    # получаем tg_id текущего пользователя
+    tg_id = await orm_get_user_tg_id(session, message)
     # получаем список его друзей, связанных с его id
-    friends = await orm_get_all_my_friends(session, db_id)
+    friends = await orm_get_all_my_friends(session, tg_id)
 
     # если у пользователя ещё нет друзей в БД
     if not friends:

@@ -38,6 +38,15 @@ async def orm_get_user_db_id(session: AsyncSession, message: Message):
     return await session.scalar(user)
 
 
+async def orm_get_user_tg_id(session: AsyncSession, message: Message):
+    """Возвращает tg_id, если такой пользователь существует в
+    базе данных. Если пользователь с таким tg_id не найден,
+    то функция вернёт None.
+    """
+    user = select(User.tg_id).where(User.tg_id == message.from_user.id)
+    return await session.scalar(user)
+
+
 async def orm_add_new_friend(session: AsyncSession, data: dict) -> None:
     # создаём объект
     obj = Friend(
@@ -45,8 +54,9 @@ async def orm_add_new_friend(session: AsyncSession, data: dict) -> None:
         date_month = data['datemonth'],
         birth_year = data['birthyear'],
     # each user has personal list of friends,
-    # total list is filtered by user`s id
-        user_id = data['userid']
+    # total list is filtered by user`s tg_id
+        user_id = data['userid'],
+        notify_week_before = data['notify_week_before']
     )
     # добавляем данные из словаря в таблицу в БД
     session.add(obj)
@@ -58,7 +68,7 @@ async def orm_check_birthday(session: AsyncSession, db_id: int):
     # today_date_month - переменная, сегодняшее число и месяц
     # найти в таблице friends строки где число и дата совпадают
     # с сегодняшним днём, а user_id == db_id того, кто отправил сообщение
-    query = select(Friend).where(Friend.date_month == today_date_month).where(Friend.user_id == db_id)
+    query = select(Friend).where((Friend.date_month == today_date_month) & (Friend.user_id == db_id))
     # таких людей может быть несколько
     # запрос возвращает целые строки со всем сожержимым
     return await session.scalars(query)
@@ -76,21 +86,6 @@ async def orm_get_friend(session: AsyncSession, id: int):
     query = select(Friend).where(Friend.id == id)
     result = await session.execute(query)
     return result.scalar()
-
-
-# async def orm_update_friend(session: AsyncSession, id: int, data: dict):
-#     """Изменить данные одного друга по id."""
-#     query = update(Friend).where(Friend.id == id).values(
-#         full_name = data['fullname'],
-#         date_month = data['datemonth'],
-#         birth_year = data['birthyear'],
-#     # each user has personal list of friends,
-#     # total list is filtered by user`s id
-#         user_id = data['userid']
-#     )
-#     await session.execute(query)  # Выполняем запрос
-#     await session.commit()   # Сохраняем изменения
-
 
 async def orm_update_friend(session: AsyncSession, friend_id: int, new_data: dict) -> None:
     """
@@ -121,3 +116,21 @@ async def orm_delete_friend(session: AsyncSession, friend_id: int):
     query = delete(Friend).where(Friend.id == friend_id)
     await session.execute(query)   # Выполняем запрос
     await session.commit()   # Сохраняем изменения
+
+async def orm_get_upcoming_birthdays(session: AsyncSession, date_month: str):
+    """Возвращает словарь {user_id: [список друзей]} с днями рождения через неделю,
+    у которых включено напоминание (notify_week_before=True).
+    """
+    query = (select(Friend).
+             where(Friend.date_month == date_month, Friend.notify_week_before == True)
+            )
+    result = await session.execute(query)
+    friends = result.scalars().all()  # содержит список друзей, у которых день рождения через неделю и включено напоминание
+
+    upcoming_birthdays = {}
+    for friend in friends:
+        if friend.user_id not in upcoming_birthdays: # Если у пользователя (user_id) ещё нет ключа в словаре
+            upcoming_birthdays[friend.user_id] = []  # создаём пустой список для хранения его друзей
+        upcoming_birthdays[friend.user_id].append(friend)
+
+    return upcoming_birthdays

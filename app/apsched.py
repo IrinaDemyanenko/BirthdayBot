@@ -1,10 +1,12 @@
+import datetime
 from aiogram import Bot
 
-from database.orm_requests import orm_check_birthday, orm_get_user_db_id
+from database.orm_requests import orm_check_birthday, orm_get_user_db_id, orm_get_upcoming_birthdays
 
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.variables import today_year
+from app.constants import what_i_can
 
 
 async def apsch_send_message_middleware_time(bot: Bot, chat_id: int):
@@ -13,22 +15,7 @@ async def apsch_send_message_middleware_time(bot: Bot, chat_id: int):
     В данном случае несколько секунд после команды /start, т е
     старта. Задача сформирована через middleware - apscheduler."""
     await bot.send_message(chat_id, # для личных сообщений chat_id == telegramm_id пользователя
-                            f'Вот что я умею:\n'
-                            f'/start - форма регистрации;\n'
-                            f'/add - добавление новых друзей в Ваш '
-                            f'персональный список близких людей;\n'
-                            f'/edit - отредактировать запись друга;\n'
-                            f'/delete - удалить друга из Базы Данных;\n'
-                            f'/all_friends - выведет список всех твоих друзей;\n'
-                            f'/check - проверка наличия именинников сегодня;\n'
-                            f'/remind_me - выберите подходящее время для получения '
-                            f'уведомлений о дне рожденя друга; данная команда активирует '
-                            f'ф-ию уведомления, запускается с отсрочкой старта в 1 минуту; '
-                            f'уведомления будут приходить в одно и тоже время (если запустили '
-                            f'команду "remind_me" в 10.00, и и уведомления будут приходить в 10.00; '
-                            f'чтобы скорректировать время - запустите ф-ию в удобное для Вас '
-                            f'время суток;),\n'
-                            f'/help - список доступных команд\n'
+                           what_i_can
                            )
 
 
@@ -49,6 +36,42 @@ async def apsch_send_message_middleware_cron(
                                f'Сегодня именинник {birth.full_name}!\n'
                                f'Исполняется {years_old} лет :)'
                             )
+
+
+async def apsch_send_birthday_reminders_week_before(bot: Bot, session: AsyncSession):
+    """Отправляет напоминания за неделю до дня рождения,
+    если включена функция notify_week_before.
+    """
+    try:
+        # Получаем дату через 7 дней
+        next_week_date = datetime.datetime.now() + datetime.timedelta(days=7)
+        # Приводим к формату ДД.ММ
+        next_week_date_month = next_week_date.strftime('%d.%m')
+
+        # Запрашиваем всех пользователей и их друзей с ДР через неделю
+        upcoming_birthdays = await orm_get_upcoming_birthdays(session, next_week_date_month)
+        # Логируем полученные данные
+        print(f"Upcoming birthdays for {next_week_date_month}: {upcoming_birthdays}")
+
+        # Проходим по всем пользователям, у которых есть друзья с ДР
+        for user_id, friends in upcoming_birthdays.items():
+            reminders = []  # список строк напоминай для каждого друга
+
+            # Перебираем друзей каждого пользователя
+            for friend in friends:
+                if friend.notify_week_before:  # Проверяем, включено ли напоминание
+                    years_old = today_year - friend.birth_year
+                    reminders.append(f'{friend.full_name} - ему/ей исполнится {years_old} лет!')
+
+            # Если у пользователя есть напоминания, отправляем сообщение
+            if reminders:
+                message_text = f'Напоминаю, через неделю день рождения у:\n' + '\n'.join(reminders)
+                await bot.send_message(user_id, message_text)
+    except Exception as e:
+        print(f"Error while sending birthday reminders: {e}")
+
+
+
 
 # async def send_message_time(bot: Bot):
 #     """Сообщение отправляется через несколько секунд после старта."""
